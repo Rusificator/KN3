@@ -1,0 +1,110 @@
+#include <iostream>
+#include <string>
+#define _WINSOCK_DEPRECATED_NO_WARNINGS  
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+
+#pragma comment(lib, "Ws2_32.lib")
+#define BUF_SIZE 8192
+
+using namespace std;
+
+void HTTP_Connection(string host, int port, string request) {
+    SOCKET s;
+    if ((s = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
+        cout << "Ошибка socket! \n";
+        return;
+    }
+
+    HOSTENT* hn;
+    if ((hn = gethostbyname(host.c_str())) == NULL) {
+        cout << "Ошибка gethostbyname! \n";
+        closesocket(s);
+        return;
+    }
+
+    sockaddr_in adr;
+    adr.sin_family = AF_INET;
+    adr.sin_addr = *((in_addr*)hn->h_addr);
+    adr.sin_port = htons(port);
+
+    if (connect(s, (sockaddr*)&adr, sizeof(adr)) == SOCKET_ERROR) {
+        cout << "Ошибка connect! \n";
+        closesocket(s);
+        return;
+    }
+
+    if (send(s, request.c_str(), request.size(), 0) == SOCKET_ERROR) {
+        cout << "Ошибка send! \n";
+        closesocket(s);
+        return;
+    }
+
+    char buf[BUF_SIZE + 1];
+    int total_received = 0;
+
+    while (true) {
+        int len = recv(s, buf, BUF_SIZE, 0);
+        if (len == SOCKET_ERROR) {
+            cout << "Ошибка recv! \n";
+            break;
+        }
+        if (len == 0) break;
+
+        buf[len] = '\0';
+        cout << buf;
+        total_received += len;
+
+        if (total_received > 100000) break; // Защита от бесконечного цикла
+    }
+
+    closesocket(s);
+}
+
+int main() {
+    setlocale(LC_ALL, "rus");
+    cout << "\t Веб-клиент\n";
+    for (int i = 0; i < 30; i++) cout << "-";
+    cout << endl;
+    cout << "Тип подключения: \n"
+        << "1: Подключиться к HTTP-серверу С++ \n"
+        << "2: Подключиться к www.json.org \n";
+    for (int i = 0; i < 30; i++) cout << "-";
+    cout << endl;
+
+    WSADATA ws;
+    if (WSAStartup(MAKEWORD(2, 2), &ws)) {
+        cerr << "Ошибка WSAStartup! \n" << WSAGetLastError();
+        return -1;
+    }
+
+    while (true) {
+        int type;
+        cout << "Введите тип подключения (1 или 2): ";
+        cin >> type;
+        cin.ignore(); // Очистка буфера
+
+        if (type == 1) {
+            HTTP_Connection("localhost", 8000,
+                "GET / HTTP/1.1\r\n"
+                "Host: localhost\r\n"
+                "Connection: close\r\n"
+                "\r\n");
+        }
+        else if (type == 2) {
+            HTTP_Connection("www.json.org", 80,
+                "GET /json-en.html  HTTP/1.1\r\n"
+                "Host: json.org\r\n"
+                "Connection: close\r\n"
+                "\r\n");
+        }
+        else {
+            cout << "Неверный тип подключения!\n";
+            continue;
+        }
+        cout << "\n\nЗапрос завершен. Можно выполнить новый запрос.\n";
+    }
+
+    WSACleanup();
+    return 0;
+}
