@@ -15,10 +15,8 @@ using namespace std;
 
 int main() {
 	setlocale(LC_ALL, "rus");
-	// Оформление окна
-	cout << "\t НТТР-сервер\n";
-	for (int i = 0; i < 30; i++)
-		cout << "-";
+
+
 
 
 	WSADATA ws;
@@ -91,36 +89,34 @@ int main() {
 		if (len == 0) {
 			cout << "Соединение закрыто клиентом" << endl;
 		}
-		// ... остальной код сервера без изменений ...
-
-// В цикле while(true) замените блок отправки ответа на:
 		else {
 			cout << "Присоединился новый клиент!\n";
+			// Ставим метку конца строки в буфере запроса
 			buf[len] = '\0';
-			cout << "Получен запрос:\n" << buf << endl; // Логируем запрос
 
-			std::stringstream responseBody, response;
-			responseBody << "<html><head><title>Test C++ HTTP Server</title></head>\n"
-				<< "<body>\n"
-				<< "<h1>Test page</h1>\n"
-				<< "<p>This is body of the test page...</p>\n"
-				<< "<h2>Request headers</h2>\n"
+			// Формируем ответ в формате HTML
+			stringstream responseBody, response;
+			// Тело ответа
+			responseBody << "<title> C++ Server</title>\n"
+				<< "<h1>Demonstration page</h1>\n"
+				<< "<p>This is text in demo page</p>\n"
+				<< "<h2>Request</h2>\n"
 				<< "<pre>" << buf << "</pre>\n"
-				<< "<em><small>Test C++ Http Server</small></em>\n"
-				<< "</body></html>\n";
+				<< "<em><small>http C++ server</small></em>\n";
 
+			// Весь ответ
 			response << "HTTP/1.1 200 OK\r\n"
+				<< "Version: HTTP/1.1\r\n"
 				<< "Content-Type: text/html; charset=utf-8\r\n"
 				<< "Content-Length: " << responseBody.str().length()
-				<< "\r\n"
-				<< "Connection: close\r\n"
-				<< "\r\n" << responseBody.str();
-
-			if (send(sClient, response.str().c_str(), response.str().length(), 0) == SOCKET_ERROR) {
+				<< "\r\n\r\n" << responseBody.str();
+			// Отправляем ответ клиенту
+			if (send(sClient, response.str().c_str(),
+				response.str().length(), 0) == SOCKET_ERROR) {
 				cerr << "Ошибка send! \n" << WSAGetLastError();
 			}
+			// Закрываем соединение
 			closesocket(sClient);
-		
 		}
 	}
 	closesocket(listener);
