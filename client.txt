@@ -1,105 +1,146 @@
 #include <iostream>
 #include <string>
-#define _WINSOCK_DEPRECATED_NO_WARNINGS  
-#include <WinSock2.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 #define BUF_SIZE 4096
-#define JSONrequest 
 
 using namespace std;
 
 void HTTP_Connection(string host, string request) {
-	// Создание сокета
-	SOCKET s;
-	if ((s = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
-		cout << "Ошибка socket! \n";
-		return;
-	}
+    WSADATA ws;
+    if (WSAStartup(MAKEWORD(2, 2), &ws) != 0) {
+        cout << "Ошибка WSAStartup! \n";
+        return;
+    }
 
-	// Получаем адрес хоста
-	HOSTENT* hn;
-	if ((hn = gethostbyname(host.c_str())) == NULL) {
-		cout << "Ошибка socket! \n";
-		closesocket(s);
-		return;
-	}
+    // Используем getaddrinfo для современного разрешения адресов
+    struct addrinfo hints, * result;
+    ZeroMemory(&hints, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
 
-	// Заполняем структуру адреса сервера
-	sockaddr_in adr;
-	adr.sin_family = AF_INET;
-	((unsigned long*)&adr.sin_addr)[0] =
-		((unsigned long**)hn->h_addr_list)[0][0];
-	adr.sin_port = htons(host == "localhost" ? 8000 : 80);
+    string port = (host == "localhost") ? "8000" : "80";
 
-	// Устанавливаем соединение с сервером
-	if (connect(s, (sockaddr*)&adr, sizeof(adr)) == SOCKET_ERROR) {
-		cout << "Ошибка connect! \n";
-		closesocket(s);
-		return;
-	}
+    int iResult = getaddrinfo(host.c_str(), port.c_str(), &hints, &result);
+    if (iResult != 0) {
+        cout << "Ошибка getaddrinfo! " << iResult << "\n";
+        WSACleanup();
+        return;
+    }
 
-	// Посылаем запрос
-	if (send(s, request.c_str(), request.size(), 0) == SOCKET_ERROR) {
-		cout << "Ошибка send! \n";
-		closesocket(s);
-		return;
-	}
+    SOCKET s = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    if (s == INVALID_SOCKET) {
+        cout << "Ошибка socket! " << WSAGetLastError() << "\n";
+        freeaddrinfo(result);
+        WSACleanup();
+        return;
+    }
 
-	// Получаем ответ
-	int len = 0;
-	char buf[BUF_SIZE + 1];
-	// Получаем все части ответа
-	do {
-		if ((len = recv(s, (char*)&buf, BUF_SIZE, 0)) == SOCKET_ERROR) {
-			cout << "Ошибка send! \n";
-			closesocket(s);
-			return;
-		}
-		buf[len] = '\0';
-		cout << buf;
-	} while (len != 0); // Пока пакеты не закончатся
+    // Устанавливаем таймаут
+    int timeout = 3000; // 3 секунды
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
 
-	// Закрываем соединение
-	if (closesocket(s) == SOCKET_ERROR)
-		return;
-	return;
+    cout << "Подключаемся к " << host << ":" << port << "...\n";
+
+    if (connect(s, result->ai_addr, (int)result->ai_addrlen) == SOCKET_ERROR) {
+        cout << "Ошибка connect! " << WSAGetLastError() << "\n";
+        freeaddrinfo(result);
+        closesocket(s);
+        WSACleanup();
+        return;
+    }
+
+    freeaddrinfo(result);
+    cout << "Подключение установлено. Отправляем запрос...\n";
+
+    if (send(s, request.c_str(), request.length(), 0) == SOCKET_ERROR) {
+        cout << "Ошибка send! " << WSAGetLastError() << "\n";
+        closesocket(s);
+        WSACleanup();
+        return;
+    }
+
+    cout << "Запрос отправлен. Получаем ответ...\n\n";
+
+    // Получаем ответ
+    char buf[BUF_SIZE + 1];
+    int total_bytes = 0;
+    int len;
+
+    while ((len = recv(s, buf, BUF_SIZE, 0)) > 0) {
+        buf[len] = '\0';
+        cout << buf;
+        total_bytes += len;
+    }
+
+    if (len == 0) {
+        cout << "\nСервер закрыл соединение\n";
+    }
+    else if (len == SOCKET_ERROR) {
+        int error = WSAGetLastError();
+        if (error == WSAETIMEDOUT) {
+            cout << "\nТаймаут при получении данных\n";
+        }
+        else {
+            cout << "Ошибка recv! " << error << "\n";
+        }
+    }
+
+    cout << "\nВсего получено байт: " << total_bytes << "\n";
+
+    closesocket(s);
+    WSACleanup();
 }
 
 int main() {
-	setlocale(LC_ALL, "rus");
+    setlocale(LC_ALL, "rus");
 
-	cout << "Тип подключения: \n"
-		<< "1: Подключиться к HTTP-серверу \n"
-		<< "2: Подключиться к www.json.org \n";
-	for (int i = 0; i < 30; i++)
-		cout << "-";
-	cout << endl;
+    cout << "\t Веб-клиент\n";
+    for (int i = 0; i < 30; i++) cout << "=";
+    cout << endl;
 
-	WSADATA ws;
-	if (WSAStartup(MAKEWORD(2, 2), &ws)) {
-		cerr << "Ошибка WSAStartup! \n" << WSAGetLastError();
-		return -1;
-	}
+    // Инициализируем Winsock один раз
+    WSADATA ws;
+    if (WSAStartup(MAKEWORD(2, 2), &ws) != 0) {
+        cerr << "Ошибка WSAStartup! \n" << WSAGetLastError();
+        return -1;
+    }
 
-	while (true) {
-		int type;
-		cout << "Введите тип подключения: ";
-		cin >> type;
-		if (type == 1) {
-			// НТРР-сервер С++
-			HTTP_Connection("localhost",
-				"GET/ HTTP/1.1\r\n Host: localhost:8000 \r\n\r\n");
-		}
-		else if (type == 2) {
-			// www.json.org
-			HTTP_Connection("www.example.com",
-				"GET / HTTP/1.1\r\nHost: www.example.com\r\nConnection: close\r\n\r\n");
-		}
-		else cout << "Неверный выбор...";
-		cout << endl;
-	}
+    while (true) {
+        int type;
+        cout << "Введите тип подключения (1 - локальный сервер, 2 - example.com, 0 - выход): ";
+        cin >> type;
 
-	WSACleanup();
-	return 0;
+        if (type == 0) break;
+
+        if (type == 1) {
+            HTTP_Connection("localhost",
+                "GET / HTTP/1.1\r\n"
+                "Host: localhost:8000\r\n"
+                "User-Agent: C++-Client\r\n"
+                "Connection: close\r\n"
+                "\r\n");
+        }
+        else if (type == 2) {
+            HTTP_Connection("www.example.com",
+                "GET / HTTP/1.1\r\n"
+                "Host: www.example.com\r\n"
+                "User-Agent: C++-Client\r\n"
+                "Connection: close\r\n"
+                "\r\n");
+        }
+        else {
+            cout << "Неверный выбор!\n";
+        }
+
+        cout << "\nГотово!\n";
+        for (int i = 0; i < 30; i++) cout << "-";
+        cout << endl;
+    }
+
+    WSACleanup();
+    return 0;
 }
